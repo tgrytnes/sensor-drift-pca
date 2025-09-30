@@ -137,6 +137,39 @@
 \makeatother
 
 
+% definitions for citeproc citations
+\NewDocumentCommand\citeproctext{}{}
+\NewDocumentCommand\citeproc{mm}{%
+  \begingroup\def\citeproctext{#2}\cite{#1}\endgroup}
+\makeatletter
+ % allow citations to break across lines
+ \let\@cite@ofmt\@firstofone
+ % avoid brackets around text for \cite:
+ \def\@biblabel#1{}
+ \def\@cite#1#2{{#1\if@tempswa , #2\fi}}
+\makeatother
+\newlength{\cslhangindent}
+\setlength{\cslhangindent}{1.5em}
+\newlength{\csllabelwidth}
+\setlength{\csllabelwidth}{3em}
+\newenvironment{CSLReferences}[2] % #1 hanging-indent, #2 entry-spacing
+ {\begin{list}{}{%
+  \setlength{\itemindent}{0pt}
+  \setlength{\leftmargin}{0pt}
+  \setlength{\parsep}{0pt}
+  % turn on hanging indent if param 1 is 1
+  \ifodd #1
+   \setlength{\leftmargin}{\cslhangindent}
+   \setlength{\itemindent}{-1\cslhangindent}
+  \fi
+  % set entry spacing
+  \setlength{\itemsep}{#2\baselineskip}}}
+ {\end{list}}
+\usepackage{calc}
+\newcommand{\CSLBlock}[1]{\hfill\break\parbox[t]{\linewidth}{\strut\ignorespaces#1\strut}}
+\newcommand{\CSLLeftMargin}[1]{\parbox[t]{\csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLRightInline}[1]{\parbox[t]{\linewidth - \csllabelwidth}{\strut#1\strut}}
+\newcommand{\CSLIndent}[1]{\hspace{\cslhangindent}#1}
 
 
 
@@ -228,7 +261,7 @@
 \IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
 \urlstyle{same}
 \hypersetup{
-  pdftitle={Gas Sensor Drift Analysis with PCA},
+  pdftitle={Geometric Analysis of Sensor Drift},
   colorlinks=true,
   linkcolor={blue},
   filecolor={Maroon},
@@ -237,14 +270,15 @@
   pdfcreator={LaTeX via pandoc}}
 
 
-\title{Gas Sensor Drift Analysis with PCA}
+\title{Geometric Analysis of Sensor Drift}
 \usepackage{etoolbox}
 \makeatletter
 \providecommand{\subtitle}[1]{% add subtitle to \maketitle
   \apptocmd{\@title}{\par {\large #1 \par}}{}{}
 }
 \makeatother
-\subtitle{Leak-Aware Prediction at Booking Time}
+\subtitle{A Principal Component Perspective on Chemical Signature
+Stability}
 \author{}
 \date{}
 \begin{document}
@@ -260,22 +294,140 @@
 \section{Project Introduction and Problem
 Description}\label{project-introduction-and-problem-description}
 
-\subsection{Project Introduction}\label{project-introduction}
+\subsection{Project Overview}\label{project-overview}
 
-{[}Brief description of the project goals and business context{]}
+This project investigates the phenomenon of sensor drift in gas sensor
+arrays through the lens of \textbf{unsupervised learning}, specifically
+employing \textbf{Principal Component Analysis (PCA)} as the primary
+dimensionality reduction technique. The core challenge addresses how
+chemical sensor measurements, which exist in a 128-dimensional space,
+change their response patterns over time due to sensor aging and
+environmental factors---a critical problem in chemical detection systems
+that affects reliability and accuracy.
 
-\subsection{Learning Approach}\label{learning-approach}
+The project reframes the traditional calibration problem as a geometric
+analysis task: understanding how the low-dimensional manifold occupied
+by chemical signatures transforms over time in high-dimensional
+measurement space. By applying PCA and related techniques, we aim to
+identify stable subspaces that remain invariant despite temporal drift,
+ultimately developing methods for drift correction and improved chemical
+classification.
 
-{[}Describe the machine learning approach - supervised/unsupervised,
-classification/regression, etc.{]}
+\subsection{Type of Learning and Task}\label{type-of-learning-and-task}
 
-\subsection{Model Strategy}\label{model-strategy}
+\textbf{Learning Paradigm:} Unsupervised Learning
 
-{[}Outline the modeling approaches to be used and why{]}
+\begin{itemize}
+\tightlist
+\item
+  No labeled drift patterns are provided; we discover structure from the
+  data itself
+\item
+  Focus on understanding intrinsic data geometry and temporal evolution
+\end{itemize}
 
-\subsection{Evaluation Framework}\label{evaluation-framework}
+\textbf{Primary Algorithms:}
 
-{[}Define success metrics and validation strategy{]}
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Principal Component Analysis (PCA)}: For dimensionality
+  reduction and identifying dominant variance directions
+\item
+  \textbf{Clustering algorithms} (K-means, hierarchical): For grouping
+  chemical signatures
+\item
+  \textbf{Procrustes Analysis}: For geometric alignment and drift
+  correction
+\end{itemize}
+
+\textbf{Task Type:}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Dimensionality Reduction}: Reducing 128-dimensional sensor
+  readings to a manageable subspace
+\item
+  \textbf{Anomaly Detection}: Identifying drift patterns as deviations
+  from expected behavior
+\item
+  \textbf{Pattern Recognition}: Discovering invariant features across
+  temporal batches
+\end{itemize}
+
+\subsection{Project Goals and
+Motivation}\label{project-goals-and-motivation}
+
+\textbf{Primary Goal:} To develop a mathematical framework for
+understanding and correcting sensor drift through principal component
+analysis, achieving at least a 30\% reduction in drift-induced
+classification errors.
+
+\textbf{Why This Matters:}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  \textbf{Industrial Relevance}: Gas sensor arrays are widely used in
+  environmental monitoring, food quality control, and safety systems.
+  Sensor drift causes frequent recalibration needs, increasing
+  operational costs.
+\item
+  \textbf{Scientific Innovation}: By treating drift as a geometric
+  transformation in PC space rather than noise, we can develop more
+  principled correction methods that preserve chemical signature
+  integrity.
+\item
+  \textbf{Practical Impact}: A successful drift correction method would
+  extend sensor array lifetime, reduce maintenance requirements, and
+  improve long-term reliability of chemical detection systems.
+\end{enumerate}
+
+\textbf{Specific Objectives:}
+
+\begin{itemize}
+\tightlist
+\item
+  Prove that chemical signatures occupy a low-dimensional manifold (5-8
+  dimensions) within the 128-dimensional measurement space
+\item
+  Quantify the stability of different principal components over 36
+  months
+\item
+  Develop a mathematical model of drift as geometric transformations
+\item
+  Create a Procrustes-based correction algorithm achieving 67\%
+  reduction in drift effects
+\item
+  Validate improvements using multiple clustering quality metrics
+\end{itemize}
+
+\subsection{Data Source and Citation}\label{data-source-and-citation}
+
+\textbf{Dataset:} Gas Sensor Array Drift Dataset
+
+\textbf{Source:} UCI Machine Learning Repository
+
+\textbf{Full Citation:} Vergara, A., Vembu, S., Ayhan, T., Ryan, M. A.,
+Homer, M. L., \& Huerta, R. (2012). \emph{Gas Sensor Array Drift
+Dataset}. UCI Machine Learning Repository.
+https://doi.org/10.24432/C5ZS4K
+
+\textbf{Data Description:} The dataset contains measurements from an
+array of 128 metal oxide gas sensors exposed to six different gaseous
+substances (Ethanol, Ethylene, Ammonia, Acetaldehyde, Acetone, and
+Toluene) at various concentrations. Data was collected over 36 months in
+five distinct batches (months 1, 5, 10, 15, and 20), capturing the
+natural drift phenomenon as sensors age. Each measurement consists of
+128 features representing individual sensor responses, with
+approximately 13,910 total observations across all batches.
+
+\textbf{Data Collection Method:} Measurements were obtained in a
+controlled laboratory environment using a standardized gas delivery
+system. Each batch represents a different time point in the sensor
+array's lifetime, allowing us to study temporal drift patterns
+systematically.
 
 \section{Data Loading \& Initial
 Inspection}\label{data-loading-initial-inspection}
@@ -399,6 +551,29 @@ Configuration}\label{hyperparameter-configuration}
 \section{References}\label{references}
 
 {[}List relevant citations and data sources{]}
+
+\phantomsection\label{refs}
+\begin{CSLReferences}{1}{0}
+\bibitem[\citeproctext]{ref-rodriguez2014calibration}
+Rodriguez-Lujan, Irene, Jordi Fonollosa, Alexander Vergara, Margie
+Homer, and Ramón Huerta. 2014. {``On the Calibration of Sensor Arrays
+for Pattern Recognition Using the Minimal Number of Experiments.''} In
+\emph{Chemometrics and Intelligent Laboratory Systems}, 130:123--34.
+Elsevier. \url{https://doi.org/10.1016/j.chemolab.2013.10.012}.
+
+\bibitem[\citeproctext]{ref-vergara2012chemical}
+Vergara, Alexander, Shankar Vembu, Tuba Ayhan, Margaret A. Ryan, Margie
+L. Homer, and Ramón Huerta. 2012a. {``Chemical Gas Sensor Drift
+Compensation Using Classifier Ensembles.''} \emph{Sensors and Actuators
+B: Chemical} 166: 320--29.
+\url{https://doi.org/10.1016/j.snb.2012.01.074}.
+
+\bibitem[\citeproctext]{ref-vergara2012gas}
+---------. 2012b. {``Gas Sensor Array Drift Dataset.''}
+\url{https://archive.ics.uci.edu/ml/datasets/Gas+Sensor+Array+Drift+Dataset};
+UCI Machine Learning Repository. \url{https://doi.org/10.24432/C5QC8P}.
+
+\end{CSLReferences}
 
 
 
