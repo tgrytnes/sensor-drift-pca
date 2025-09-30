@@ -1,0 +1,10 @@
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+
+execute:
+  echo: true
+  warning: false
+  error: false
