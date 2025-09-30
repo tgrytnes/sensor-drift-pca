@@ -1,25 +1,128 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-.venv/
-.env
-# Notebooks
-.ipynb_checkpoints/
-# Artifacts & data
-artifacts/
-data/processed/
-# OS
-.DS_Store
-# Environments
-*.egg-info/
-dist/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Data files (too large for git)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# UCI Dataset files
+*.dat
+*.dat.zip
+batch*.dat
+batch*.zip
+
+# Results and outputs
+results/figures/*
+!results/figures/.gitkeep
+results/metrics/*
+!results/metrics/.gitkeep
+artifacts/
+reports/
+runs/
+
+# Generated visualizations
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.pdf
+!docs/*.png
+!docs/*.jpg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+notebooks/out/
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.venv
+
 # IDE
 .vscode/
 .idea/
-# Virtualenv
-venv/
-*.venv
+*.swp
+*.swo
+*~
+.DS_Store
 
+# Project specific data formats
+*.csv
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.mat
+*.npz
+*.npy
+!requirements.txt
+!docs/*.csv  # Allow example CSV files in docs if needed
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.cache
+
+# Model checkpoints and weights
+*.pth
+*.pt
+*.ckpt
+*.weights
+
+# Quarto
 .quarto/
-notebooks/out/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+.Trash-*
