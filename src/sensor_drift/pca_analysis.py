@@ -1,9 +1,16 @@
 """PCA analysis and stability metrics for sensor drift"""
 
+import argparse
+import json
+import re
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
-from sklearn.decomposition import PCA
-from typing import List, Tuple, Dict, Optional
 import pandas as pd
+from sklearn.decomposition import PCA
+
+from data_preprocessing import normalize_features
 
 
 def compute_pca(X: np.ndarray, n_components: Optional[int] = None) -> Tuple[PCA, np.ndarray]:
@@ -16,7 +23,7 @@ def compute_pca(X: np.ndarray, n_components: Optional[int] = None) -> Tuple[PCA,
     Returns:
         Fitted PCA object and transformed data
     """
-    pca = PCA(n_components=n_components)
+    pca = PCA(n_components=n_components, svd_solver='full')
     X_transformed = pca.fit_transform(X)
     return pca, X_transformed
 
@@ -132,7 +139,11 @@ def track_drift_in_pc_space(data_batches: Dict[str, np.ndarray],
 
     for batch_id, X_batch in data_batches.items():
         # Project batch data onto reference PC space
-        X_transformed = pca_reference.transform(X_batch)
+        with np.errstate(over='ignore', under='ignore', divide='ignore', invalid='ignore'):
+            X_transformed = pca_reference.transform(X_batch)
+
+        if not np.isfinite(X_transformed).all():
+            raise ValueError(f"Non-finite values encountered when projecting batch {batch_id}")
 
         if chemical_labels and batch_id in chemical_labels:
             labels = chemical_labels[batch_id]
@@ -243,3 +254,281 @@ def parallel_analysis(X: np.ndarray, n_iterations: int = 100) -> int:
     n_significant = np.sum(actual_eigenvalues > random_95)
 
     return int(n_significant)
+
+
+def infer_sensor_columns(df: pd.DataFrame) -> List[str]:
+    """Infer sensor feature columns from processed dataset"""
+    sensor_cols = [col for col in df.columns if col.startswith('sensor_')]
+    if sensor_cols:
+        return sensor_cols
+
+    sensor_pattern = re.compile(r'^S\d{2}_F\d{1,2}_[A-Za-z0-9_]+$')
+    sensor_cols = [col for col in df.columns if sensor_pattern.match(col)]
+    if sensor_cols:
+        return sensor_cols
+
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    reserved = {'batch', 'gas_type', 'target', 'label', 'concentration'}
+    sensor_cols = [col for col in numeric_cols if col not in reserved]
+
+    if not sensor_cols:
+        raise ValueError("Unable to infer sensor feature columns from dataset")
+
+    return sensor_cols
+
+
+def run_sensor_pca_analysis(
+    df: pd.DataFrame,
+    sensor_cols: List[str],
+    batch_col: str = 'batch',
+    label_col: Optional[str] = 'gas_name',
+    n_components: int = 50,
+    stability_components: int = 10,
+    stability_threshold: float = 15.0,
+    batch_mean_threshold: float = 0.5
+) -> Dict:
+    """Execute PCA workflow on processed sensor dataset"""
+
+    if n_components <= 0:
+        raise ValueError("n_components must be positive")
+
+    if stability_components <= 0:
+        raise ValueError("stability_components must be positive")
+
+    X = df[sensor_cols].to_numpy(dtype=float)
+    X_norm, norm_params = normalize_features(X, method='standard')
+
+    max_components = min(n_components, X_norm.shape[0], X_norm.shape[1])
+    pca_global, X_pca = compute_pca(X_norm, n_components=max_components)
+    eigen_analysis = analyze_eigenvalue_spectrum(pca_global)
+
+    components_for_variance = {
+        key: int(val) for key, val in eigen_analysis['components_for_variance'].items()
+    }
+
+    batch_ids = sorted(df[batch_col].unique())
+    batch_sizes = {}
+    batch_arrays: Dict = {}
+    batch_labels: Dict = {}
+    pca_batches: List[PCA] = []
+    batch_mean_scores = []
+
+    for batch_id in batch_ids:
+        mask = df[batch_col] == batch_id
+        batch_sizes[str(batch_id)] = int(mask.sum())
+
+        X_batch = X_norm[mask]
+        batch_arrays[batch_id] = X_batch
+
+        if X_batch.size == 0:
+            continue
+
+        batch_mean_scores.append(X_pca[mask])
+
+        n_batch_components = min(stability_components, X_batch.shape[0], X_batch.shape[1])
+        if n_batch_components < 1:
+            continue
+
+        pca_batch, _ = compute_pca(X_batch, n_components=n_batch_components)
+        pca_batches.append(pca_batch)
+
+        if label_col and label_col in df.columns:
+            batch_labels[batch_id] = df.loc[mask, label_col].to_numpy()
+
+    if batch_mean_scores:
+        batch_means = np.vstack([scores.mean(axis=0) for scores in batch_mean_scores])
+        component_batch_std = batch_means.std(axis=0)
+        stable_components_by_mean = np.where(component_batch_std < batch_mean_threshold)[0]
+    else:
+        component_batch_std = np.array([])
+        stable_components_by_mean = np.array([])
+
+    if len(pca_batches) >= 2:
+        stability_angles = measure_pc_stability(pca_batches, n_components=stability_components)
+        mean_angles = stability_angles.mean(axis=0) if stability_angles.size else np.array([])
+        stable_components = find_stable_subspace(stability_angles, stability_threshold) if stability_angles.size else []
+    else:
+        stability_angles = np.zeros((0, stability_components))
+        mean_angles = np.array([])
+        stable_components = []
+
+    if pca_batches:
+        chemical_labels = batch_labels if batch_labels else None
+        drift_df = track_drift_in_pc_space(batch_arrays, pca_batches[0], chemical_labels)
+    else:
+        drift_df = pd.DataFrame()
+
+    drift_velocities = {}
+    overall_velocity = None
+    if not drift_df.empty and 'drift_velocity' in drift_df.columns:
+        velocity_series = drift_df['drift_velocity'].dropna()
+        if not velocity_series.empty:
+            overall_velocity = float(velocity_series.mean())
+
+        for chem, values in drift_df.groupby('chemical')['drift_velocity']:
+            mean_val = values.dropna().mean()
+            if not np.isnan(mean_val):
+                drift_velocities[str(chem)] = float(mean_val)
+
+    stability_df = pd.DataFrame()
+    if stability_angles.size:
+        n_cols = stability_angles.shape[1]
+        stability_df = pd.DataFrame(
+            stability_angles,
+            columns=[f'PC{i+1}' for i in range(n_cols)]
+        )
+
+    summary = {
+        'dataset': {
+            'n_samples': int(len(df)),
+            'n_features': int(len(sensor_cols)),
+            'batch_column': batch_col,
+            'label_column': label_col if label_col and label_col in df.columns else None,
+            'batch_sample_counts': batch_sizes,
+        },
+        'normalization': {
+            'mean': norm_params['mean'].tolist(),
+            'std': norm_params['std'].tolist()
+        },
+        'global_pca': {
+            'n_components_fitted': int(pca_global.n_components_),
+            'explained_variance_ratio_first10': eigen_analysis['explained_variance_ratio'][:10].tolist(),
+            'cumulative_variance_first10': eigen_analysis['cumulative_variance'][:10].tolist(),
+            'kaiser_n_components': int(eigen_analysis['kaiser_n_components']),
+            'elbow_index': int(eigen_analysis['elbow_index']),
+            'components_for_variance': components_for_variance
+        },
+        'stability': {
+            'mean_angles_degrees': mean_angles.tolist(),
+            'stable_components_zero_indexed': [int(idx) for idx in stable_components],
+            'stable_components_one_indexed': [int(idx) + 1 for idx in stable_components],
+            'stability_threshold_degrees': float(stability_threshold)
+        },
+        'component_stability': {
+            'batch_mean_std': component_batch_std.tolist(),
+            'stable_components_zero_indexed': [int(idx) for idx in stable_components_by_mean],
+            'stable_components_one_indexed': [int(idx) + 1 for idx in stable_components_by_mean],
+            'batch_mean_threshold': float(batch_mean_threshold)
+        },
+        'drift': {
+            'overall_average_velocity': overall_velocity,
+            'average_velocity_by_chemical': drift_velocities
+        }
+    }
+
+    return {
+        'summary': summary,
+        'stability_angles': stability_angles,
+        'stability_df': stability_df,
+        'drift_df': drift_df,
+        'global_scores': X_pca
+    }
+
+
+def _pretty_print_summary(summary: Dict) -> None:
+    """Print key metrics to stdout"""
+    dataset = summary['dataset']
+    global_pca_summary = summary['global_pca']
+    stability = summary['stability']
+    drift = summary['drift']
+
+    print("=" * 70)
+    print("DATASET")
+    print(f"Rows: {dataset['n_samples']} | Features: {dataset['n_features']} | Batches: {len(dataset['batch_sample_counts'])}")
+    print(f"Batch counts: {dataset['batch_sample_counts']}")
+
+    print("\nGLOBAL PCA")
+    print(f"Components fitted: {global_pca_summary['n_components_fitted']}")
+    print(f"Variance for 90/95/99%: {global_pca_summary['components_for_variance']}")
+    print(f"Elbow index: {global_pca_summary['elbow_index']} | Kaiser: {global_pca_summary['kaiser_n_components']}")
+
+    print("\nSTABILITY")
+    if stability['mean_angles_degrees']:
+        top_angles = stability['mean_angles_degrees'][:5]
+        print(f"Mean angles (first 5 PCs): {[round(val, 2) for val in top_angles]}")
+        print(f"Stable PCs (<{stability['stability_threshold_degrees']}°): {stability['stable_components_one_indexed']}")
+    else:
+        print("Not enough batches to compute stability metrics")
+
+    component_stability = summary['component_stability']
+    if component_stability['batch_mean_std']:
+        stable_mean = component_stability['stable_components_one_indexed']
+        print("\nBATCH-MEAN STABILITY")
+        print(f"Std threshold: {component_stability['batch_mean_threshold']}")
+        print(f"Stable PCs by batch means: {stable_mean}")
+        print(f"First 5 stds: {[round(val, 3) for val in component_stability['batch_mean_std'][:5]]}")
+
+    print("\nDRIFT")
+    if drift['overall_average_velocity'] is not None:
+        print(f"Overall average drift velocity: {drift['overall_average_velocity']:.4f}")
+        print(f"Velocity by chemical: {drift['average_velocity_by_chemical']}")
+    else:
+        print("Drift metrics unavailable (insufficient data)")
+    print("=" * 70)
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments"""
+    project_root = Path(__file__).resolve().parents[2]
+    default_data = project_root / 'data' / 'processed' / 'sensor_data.csv'
+    default_output = project_root / 'results' / 'pca_analysis'
+
+    parser = argparse.ArgumentParser(description="Run PCA analysis on sensor drift dataset")
+    parser.add_argument('--data', type=Path, default=default_data, help='Path to processed sensor dataset CSV')
+    parser.add_argument('--batch-col', default='batch', help='Name of batch column in dataset')
+    parser.add_argument('--label-col', default='gas_name', help='Name of label column (optional)')
+    parser.add_argument('--components', type=int, default=50, help='Maximum number of PCA components to fit')
+    parser.add_argument('--stability-components', type=int, default=10, help='Number of components to evaluate for stability')
+    parser.add_argument('--stability-threshold', type=float, default=15.0, help='Stability angle threshold in degrees')
+    parser.add_argument('--batch-mean-threshold', type=float, default=0.5, help='Std threshold for identifying stable PCs via batch means')
+    parser.add_argument('--output-dir', type=Path, default=default_output, help='Directory to store analysis artifacts')
+    parser.add_argument('--no-save', action='store_true', help='Skip writing artifacts to disk')
+
+    return parser.parse_args()
+
+
+def main() -> None:
+    """Entry point for CLI execution"""
+    args = parse_args()
+
+    if not args.data.exists():
+        raise FileNotFoundError(f"Dataset not found at {args.data}")
+
+    df = pd.read_csv(args.data)
+    sensor_cols = infer_sensor_columns(df)
+
+    results = run_sensor_pca_analysis(
+        df=df,
+        sensor_cols=sensor_cols,
+        batch_col=args.batch_col,
+        label_col=args.label_col if args.label_col in df.columns else None,
+        n_components=args.components,
+        stability_components=args.stability_components,
+        stability_threshold=args.stability_threshold,
+        batch_mean_threshold=args.batch_mean_threshold
+    )
+
+    summary = results['summary']
+    _pretty_print_summary(summary)
+
+    if not args.no_save:
+        output_dir = args.output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        summary_path = output_dir / 'summary.json'
+        summary_path.write_text(json.dumps(summary, indent=2))
+
+        stability_df: pd.DataFrame = results['stability_df']
+        if not stability_df.empty:
+            stability_df.to_csv(output_dir / 'pc_stability.csv', index=False)
+
+        drift_df: pd.DataFrame = results['drift_df']
+        if not drift_df.empty:
+            drift_df.to_csv(output_dir / 'drift_metrics.csv', index=False)
+
+        scores = results['global_scores']
+        np.save(output_dir / 'global_pca_scores.npy', scores)
+
+
+if __name__ == '__main__':
+    main()

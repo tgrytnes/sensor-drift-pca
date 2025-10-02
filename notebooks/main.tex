@@ -429,43 +429,312 @@ system. Each batch represents a different time point in the sensor
 array's lifetime, allowing us to study temporal drift patterns
 systematically.
 
-\section{Data Loading \& Initial
-Inspection}\label{data-loading-initial-inspection}
+\subsection{Related Work and Novel
+Contributions}\label{related-work-and-novel-contributions}
 
-\subsection{Dataset Description}\label{dataset-description}
+Vergara et al. (2012a) introduced the Gas Sensor Array Drift Dataset and
+focused on drift compensation for supervised classification tasks,
+employing ensemble methods to maintain gas identification accuracy
+despite sensor aging. Their work, along with subsequent studies
+(Rodriguez-Lujan et al. (2014)), primarily addressed drift as a
+challenge for prediction accuracy rather than investigating the
+geometric properties of drift itself.
 
-{[}Describe the dataset source, size, and key characteristics{]}
+This project diverges from existing supervised approaches by examining
+drift through an unsupervised, geometric lens. Specifically, we
+investigate which principal components of the 128-dimensional sensor
+space exhibit stability across time batches and characterize drift as
+manifold deformations in reduced-dimensional space. By computing angular
+distances between principal component vectors across different
+measurement campaigns, we develop stability rankings that identify
+drift-resistant subspaces---an analysis not present in prior work on
+this dataset.
+
+\section{Data Loading \& Inspection}\label{data-loading-inspection}
+
+\subsection{Data Import Challenges}\label{data-import-challenges}
+
+The original dataset from UCI uses LibSVM sparse format, which required
+careful interpretation. Initially, we misidentified feature 1 (with
+values around 15,000-670,000) as concentration data, when it's actually
+ΔR₁ - the absolute resistance change in Ohms for the first sensor. The
+UCI documentation clarified that this is the \textbf{original dataset
+version without concentration values}. All 128 features represent sensor
+measurements: 16 chemical sensors × 8 features each (2 steady-state + 6
+transient features). Understanding this structure was crucial for proper
+data processing and column naming
+(S\{sensor\}\emph{F\{feature\}}\{type\} format).
+
+To handle this complex data conversion systematically, we created a
+dedicated processing script
+\texttt{src/sensor\_drift/process\_dat\_to\_csv.py} that converts the
+raw LibSVM format (.dat files) to a properly structured CSV with
+meaningful column names, without applying any data modifications.
+
+\subsection{Data Inspection}\label{data-inspection}
+
+In this section, we'll load the gas sensor drift dataset and perform
+some initial inspection of the data to understand its structure, size,
+and key characteristics.
 
 \begin{Shaded}
 \begin{Highlighting}[]
 \ImportTok{import}\NormalTok{ pandas }\ImportTok{as}\NormalTok{ pd}
 \ImportTok{import}\NormalTok{ numpy }\ImportTok{as}\NormalTok{ np}
 \ImportTok{from}\NormalTok{ pathlib }\ImportTok{import}\NormalTok{ Path}
+\ImportTok{import}\NormalTok{ matplotlib.pyplot }\ImportTok{as}\NormalTok{ plt}
+\ImportTok{import}\NormalTok{ seaborn }\ImportTok{as}\NormalTok{ sns}
+
+\CommentTok{\# Set style for better visualizations}
+\NormalTok{plt.style.use(}\StringTok{\textquotesingle{}seaborn{-}v0\_8{-}darkgrid\textquotesingle{}}\NormalTok{)}
+\NormalTok{sns.set\_palette(}\StringTok{"husl"}\NormalTok{)}
 
 \CommentTok{\# Load data}
 \NormalTok{data\_path }\OperatorTok{=}\NormalTok{ Path(}\StringTok{"../data/processed/sensor\_data.csv"}\NormalTok{)}
 \NormalTok{df }\OperatorTok{=}\NormalTok{ pd.read\_csv(data\_path)}
 
-\CommentTok{\# Basic information}
+\CommentTok{\# Basic Dataset Information}
+\BuiltInTok{print}\NormalTok{(}\StringTok{"="}\OperatorTok{*}\DecValTok{60}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\StringTok{"DATASET OVERVIEW"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\StringTok{"="}\OperatorTok{*}\DecValTok{60}\NormalTok{)}
 \BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Dataset shape: }\SpecialCharTok{\{}\NormalTok{df}\SpecialCharTok{.}\NormalTok{shape[}\DecValTok{0}\NormalTok{]}\SpecialCharTok{:,\}}\SpecialStringTok{ rows × }\SpecialCharTok{\{}\NormalTok{df}\SpecialCharTok{.}\NormalTok{shape[}\DecValTok{1}\NormalTok{]}\SpecialCharTok{\}}\SpecialStringTok{ columns"}\NormalTok{)}
-\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"}\CharTok{\textbackslash{}n}\SpecialStringTok{Data types: }\SpecialCharTok{\{}\NormalTok{df}\SpecialCharTok{.}\NormalTok{dtypes}\SpecialCharTok{.}\NormalTok{value\_counts()}\SpecialCharTok{.}\NormalTok{to\_dict()}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"}\CharTok{\textbackslash{}n}\SpecialStringTok{Memory usage: }\SpecialCharTok{\{}\NormalTok{df}\SpecialCharTok{.}\NormalTok{memory\_usage(deep}\OperatorTok{=}\VariableTok{True}\NormalTok{)}\SpecialCharTok{.}\BuiltInTok{sum}\NormalTok{() }\OperatorTok{/} \DecValTok{1024}\OperatorTok{**}\DecValTok{2}\SpecialCharTok{:.2f\}}\SpecialStringTok{ MB"}\NormalTok{)}
+
+\CommentTok{\# Data types distribution}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"}\CharTok{\textbackslash{}n}\SpecialStringTok{Data types distribution:"}\NormalTok{)}
+\ControlFlowTok{for}\NormalTok{ dtype, count }\KeywordTok{in}\NormalTok{ df.dtypes.value\_counts().items():}
+    \BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"  }\SpecialCharTok{\{}\NormalTok{dtype}\SpecialCharTok{\}}\SpecialStringTok{: }\SpecialCharTok{\{}\NormalTok{count}\SpecialCharTok{\}}\SpecialStringTok{ columns"}\NormalTok{)}
+
+\CommentTok{\# Column information}
+\BuiltInTok{print}\NormalTok{(}\StringTok{"}\CharTok{\textbackslash{}n}\StringTok{Column categories:"}\NormalTok{)}
+\NormalTok{sensor\_cols }\OperatorTok{=}\NormalTok{ [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ df.columns }\ControlFlowTok{if}\NormalTok{ col.startswith(}\StringTok{\textquotesingle{}S\textquotesingle{}}\NormalTok{)]}
+\NormalTok{metadata\_cols }\OperatorTok{=}\NormalTok{ [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ df.columns }\ControlFlowTok{if}\NormalTok{ col }\KeywordTok{not} \KeywordTok{in}\NormalTok{ sensor\_cols]}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"  Sensor features: }\SpecialCharTok{\{}\BuiltInTok{len}\NormalTok{(sensor\_cols)}\SpecialCharTok{\}}\SpecialStringTok{ columns"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"  Metadata columns: }\SpecialCharTok{\{}\BuiltInTok{len}\NormalTok{(metadata\_cols)}\SpecialCharTok{\}}\SpecialStringTok{ columns"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"  Metadata column names: }\SpecialCharTok{\{}\NormalTok{metadata\_cols}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+
+\CommentTok{\# Display sample data}
+\BuiltInTok{print}\NormalTok{(}\StringTok{"}\CharTok{\textbackslash{}n}\StringTok{Sample data (first 3 rows, selected columns):"}\NormalTok{)}
+\NormalTok{sample\_cols }\OperatorTok{=}\NormalTok{ [}\StringTok{\textquotesingle{}gas\_type\textquotesingle{}}\NormalTok{, }\StringTok{\textquotesingle{}gas\_name\textquotesingle{}}\NormalTok{, }\StringTok{\textquotesingle{}batch\textquotesingle{}}\NormalTok{] }\OperatorTok{+}\NormalTok{ sensor\_cols[:}\DecValTok{3}\NormalTok{]}
+\BuiltInTok{print}\NormalTok{(df[sample\_cols].head(}\DecValTok{3}\NormalTok{).to\_string(index}\OperatorTok{=}\VariableTok{False}\NormalTok{))}
 \end{Highlighting}
 \end{Shaded}
 
-\section{Preprocess and Data
-Cleaning}\label{preprocess-and-data-cleaning}
+\begin{verbatim}
+============================================================
+DATASET OVERVIEW
+============================================================
+Dataset shape: 13,910 rows × 131 columns
 
-\subsection{Missing Value Treatment}\label{missing-value-treatment}
+Memory usage: 14.66 MB
 
-{[}Document data cleaning steps{]}
+Data types distribution:
+  float64: 128 columns
+  int64: 2 columns
+  object: 1 columns
+
+Column categories:
+  Sensor features: 128 columns
+  Metadata columns: 3 columns
+  Metadata column names: ['gas_type', 'gas_name', 'batch']
+
+Sample data (first 3 rows, selected columns):
+ gas_type gas_name  batch  S01_F1_DR  S01_F2_DR_norm  S01_F3_EMAi_001
+        1  Ethanol      1 15596.1621        1.868245         2.371604
+        1  Ethanol      1 26402.0704        2.532401         5.411209
+        1  Ethanol      1 42103.5820        3.454189         8.198175
+\end{verbatim}
+
+Next, we'll check for potential data quality issues:
+
+\begin{itemize}
+\tightlist
+\item
+  Missing values - Identify any null or NaN entries
+\item
+  Data types - Verify all sensor columns are numeric
+\item
+  Duplicates - Detect repeated samples that could bias analysis
+\item
+  Temporal consistency - Ensure batch labels are sequential and complete
+\item
+  Value ranges - Identify impossible values (e.g., negative sensor
+  readings)
+\item
+  Sample balance - Verify adequate representation across gas types and
+  concentrations''
+\end{itemize}
 
 \begin{Shaded}
 \begin{Highlighting}[]
-\CommentTok{\# Example: Handle missing values}
-\NormalTok{df\_cleaned }\OperatorTok{=}\NormalTok{ df.copy()}
-\CommentTok{\# Add cleaning steps here}
+
+\CommentTok{\# Store original shape for comparison}
+\NormalTok{original\_shape }\OperatorTok{=}\NormalTok{ df.shape}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Original dataset: }\SpecialCharTok{\{}\NormalTok{original\_shape[}\DecValTok{0}\NormalTok{]}\SpecialCharTok{:,\}}\SpecialStringTok{ rows × }\SpecialCharTok{\{}\NormalTok{original\_shape[}\DecValTok{1}\NormalTok{]}\SpecialCharTok{\}}\SpecialStringTok{ columns"}\NormalTok{)}
+
+\CommentTok{\# 1. Check for missing values}
+\NormalTok{missing\_check }\OperatorTok{=}\NormalTok{ df.isnull().}\BuiltInTok{sum}\NormalTok{()}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"}\CharTok{\textbackslash{}n}\SpecialStringTok{1. Missing Values: }\SpecialCharTok{\{}\NormalTok{missing\_check}\SpecialCharTok{.}\BuiltInTok{sum}\NormalTok{()}\SpecialCharTok{\}}\SpecialStringTok{ total"}\NormalTok{)}
+
+\CommentTok{\# 2. Data types check}
+\NormalTok{non\_numeric\_sensors }\OperatorTok{=}\NormalTok{ [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ sensor\_cols }
+                       \ControlFlowTok{if} \KeywordTok{not}\NormalTok{ pd.api.types.is\_numeric\_dtype(df[col])]}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"2. Non{-}numeric Sensor Columns: "}\NormalTok{,}
+      \SpecialStringTok{f"}\SpecialCharTok{\{}\NormalTok{non\_numeric\_sensors }\ControlFlowTok{if}\NormalTok{ non\_numeric\_sensors }\ControlFlowTok{else} \StringTok{\textquotesingle{}All numeric ✓\textquotesingle{}}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+
+\CommentTok{\# 3. Check for duplicates}
+\NormalTok{duplicates }\OperatorTok{=}\NormalTok{ df.duplicated()}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"3. Duplicate Rows: }\SpecialCharTok{\{}\NormalTok{duplicates}\SpecialCharTok{.}\BuiltInTok{sum}\NormalTok{()}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+
+\CommentTok{\# 4. Temporal consistency}
+\NormalTok{batch\_values }\OperatorTok{=} \BuiltInTok{sorted}\NormalTok{(df[}\StringTok{\textquotesingle{}batch\textquotesingle{}}\NormalTok{].unique())}
+\NormalTok{expected\_batches }\OperatorTok{=} \BuiltInTok{list}\NormalTok{(}\BuiltInTok{range}\NormalTok{(}\DecValTok{1}\NormalTok{, }\BuiltInTok{max}\NormalTok{(batch\_values)}\OperatorTok{+}\DecValTok{1}\NormalTok{))}
+\NormalTok{missing\_batches }\OperatorTok{=} \BuiltInTok{set}\NormalTok{(expected\_batches) }\OperatorTok{{-}} \BuiltInTok{set}\NormalTok{(batch\_values)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"4. Temporal Consistency:"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"   Batches present: }\SpecialCharTok{\{}\BuiltInTok{min}\NormalTok{(batch\_values)}\SpecialCharTok{\}}\SpecialStringTok{{-}}\SpecialCharTok{\{}\BuiltInTok{max}\NormalTok{(batch\_values)}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"   Missing batches: }\SpecialCharTok{\{}\BuiltInTok{list}\NormalTok{(missing\_batches) }\ControlFlowTok{if}\NormalTok{ missing\_batches }\ControlFlowTok{else} \StringTok{\textquotesingle{}None ✓\textquotesingle{}}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+
+\CommentTok{\# 5. Value ranges}
+\NormalTok{sensor\_data }\OperatorTok{=}\NormalTok{ df[sensor\_cols]}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"5. Sensor Value Ranges:"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"   Min: }\SpecialCharTok{\{}\NormalTok{sensor\_data}\SpecialCharTok{.}\BuiltInTok{min}\NormalTok{()}\SpecialCharTok{.}\BuiltInTok{min}\NormalTok{()}\SpecialCharTok{:.2f\}}\SpecialStringTok{"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"   Max: }\SpecialCharTok{\{}\NormalTok{sensor\_data}\SpecialCharTok{.}\BuiltInTok{max}\NormalTok{()}\SpecialCharTok{.}\BuiltInTok{max}\NormalTok{()}\SpecialCharTok{:.2f\}}\SpecialStringTok{"}\NormalTok{)}
+\NormalTok{negative\_sensors }\OperatorTok{=}\NormalTok{ (sensor\_data }\OperatorTok{\textless{}} \DecValTok{0}\NormalTok{).}\BuiltInTok{any}\NormalTok{()}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"   Sensors with negative values: }\SpecialCharTok{\{}\NormalTok{negative\_sensors}\SpecialCharTok{.}\BuiltInTok{sum}\NormalTok{()}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+
+\CommentTok{\# 6. Sample balance}
+\NormalTok{gas\_counts }\OperatorTok{=}\NormalTok{ df[}\StringTok{\textquotesingle{}gas\_name\textquotesingle{}}\NormalTok{].value\_counts()}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"6. Sample Balance:"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"   Gas types: }\SpecialCharTok{\{}\BuiltInTok{len}\NormalTok{(gas\_counts)}\SpecialCharTok{\}}\SpecialStringTok{ types"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"   Min samples: }\SpecialCharTok{\{}\NormalTok{gas\_counts}\SpecialCharTok{.}\BuiltInTok{min}\NormalTok{()}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"   Max samples: }\SpecialCharTok{\{}\NormalTok{gas\_counts}\SpecialCharTok{.}\BuiltInTok{max}\NormalTok{()}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"   Imbalance ratio: }\SpecialCharTok{\{}\NormalTok{gas\_counts}\SpecialCharTok{.}\BuiltInTok{max}\NormalTok{() }\OperatorTok{/}\NormalTok{ gas\_counts}\SpecialCharTok{.}\BuiltInTok{min}\NormalTok{()}\SpecialCharTok{:.2f\}}\SpecialStringTok{:1"}\NormalTok{)}
 \end{Highlighting}
 \end{Shaded}
+
+\begin{verbatim}
+Original dataset: 13,910 rows × 131 columns
+
+1. Missing Values: 0 total
+2. Non-numeric Sensor Columns:  All numeric ✓
+3. Duplicate Rows: 0
+4. Temporal Consistency:
+   Batches present: 1-10
+   Missing batches: None ✓
+5. Sensor Value Ranges:
+   Min: -23660.63
+   Max: 670687.35
+   Sensors with negative values: 64
+6. Sample Balance:
+   Gas types: 6 types
+   Min samples: 1641
+   Max samples: 3009
+   Imbalance ratio: 1.83:1
+\end{verbatim}
+
+Summary:
+
+\begin{itemize}
+\tightlist
+\item
+  No missing values or duplicates
+\item
+  All sensor columns numeric
+\item
+  Complete temporal sequence (batches 1-10)
+\item
+  Good sample balance (1.83:1 ratio, adequate samples per class)
+\end{itemize}
+
+Regarding negative sensor values: These are expected and scientifically
+meaningful, as documented by Vergara et al.~(Vergara et al. (2012a)):
+``The sensor response to the same gas concentration changed
+significantly over time, with some sensors showing sensitivity decrease
+(negative drift) and others showing sensitivity increase (positive
+drift).'' Therefore, negative readings represent genuine drift phenomena
+rather than data errors and should be preserved in our analysis.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# Group features by type}
+\NormalTok{feature\_types }\OperatorTok{=}\NormalTok{ \{}
+    \StringTok{\textquotesingle{}DR\textquotesingle{}}\NormalTok{: [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ sensor\_cols }\ControlFlowTok{if} \StringTok{\textquotesingle{}F1\_DR\textquotesingle{}} \KeywordTok{in}\NormalTok{ col],}
+    \StringTok{\textquotesingle{}DR\_norm\textquotesingle{}}\NormalTok{: [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ sensor\_cols }\ControlFlowTok{if} \StringTok{\textquotesingle{}F2\_DR\_norm\textquotesingle{}} \KeywordTok{in}\NormalTok{ col],}
+    \StringTok{\textquotesingle{}EMAi\_001\textquotesingle{}}\NormalTok{: [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ sensor\_cols }\ControlFlowTok{if} \StringTok{\textquotesingle{}F3\_EMAi\_001\textquotesingle{}} \KeywordTok{in}\NormalTok{ col],}
+    \StringTok{\textquotesingle{}EMAi\_01\textquotesingle{}}\NormalTok{: [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ sensor\_cols }\ControlFlowTok{if} \StringTok{\textquotesingle{}F4\_EMAi\_01\textquotesingle{}} \KeywordTok{in}\NormalTok{ col],}
+    \StringTok{\textquotesingle{}EMAi\_1\textquotesingle{}}\NormalTok{: [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ sensor\_cols }\ControlFlowTok{if} \StringTok{\textquotesingle{}F5\_EMAi\_1\textquotesingle{}} \KeywordTok{in}\NormalTok{ col],}
+    \StringTok{\textquotesingle{}EMAd\_001\textquotesingle{}}\NormalTok{: [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ sensor\_cols }\ControlFlowTok{if} \StringTok{\textquotesingle{}F6\_EMAd\_001\textquotesingle{}} \KeywordTok{in}\NormalTok{ col],}
+    \StringTok{\textquotesingle{}EMAd\_01\textquotesingle{}}\NormalTok{: [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ sensor\_cols }\ControlFlowTok{if} \StringTok{\textquotesingle{}F7\_EMAd\_01\textquotesingle{}} \KeywordTok{in}\NormalTok{ col],}
+    \StringTok{\textquotesingle{}EMAd\_1\textquotesingle{}}\NormalTok{: [col }\ControlFlowTok{for}\NormalTok{ col }\KeywordTok{in}\NormalTok{ sensor\_cols }\ControlFlowTok{if} \StringTok{\textquotesingle{}F8\_EMAd\_1\textquotesingle{}} \KeywordTok{in}\NormalTok{ col]}
+\NormalTok{\}}
+
+\CommentTok{\# Variance analysis}
+\BuiltInTok{print}\NormalTok{(}\StringTok{"FEATURE VARIANCE ANALYSIS"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\StringTok{"="}\OperatorTok{*}\DecValTok{40}\NormalTok{)}
+\ControlFlowTok{for}\NormalTok{ i, (ftype, cols) }\KeywordTok{in} \BuiltInTok{enumerate}\NormalTok{(feature\_types.items(), }\DecValTok{1}\NormalTok{):}
+    \BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"F}\SpecialCharTok{\{}\NormalTok{i}\SpecialCharTok{\}}\SpecialStringTok{ (}\SpecialCharTok{\{}\NormalTok{ftype}\SpecialCharTok{:8s\}}\SpecialStringTok{): }\SpecialCharTok{\{}\NormalTok{df[cols]}\SpecialCharTok{.}\NormalTok{var()}\SpecialCharTok{.}\NormalTok{mean()}\SpecialCharTok{:.2e\}}\SpecialStringTok{"}\NormalTok{)}
+
+\CommentTok{\# Sensor health}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"}\CharTok{\textbackslash{}n}\SpecialStringTok{SENSOR HEALTH: }\SpecialCharTok{\{}\NormalTok{(df[sensor\_cols].var() }\OperatorTok{\textgreater{}} \FloatTok{0.001}\NormalTok{)}\SpecialCharTok{.}\BuiltInTok{sum}\NormalTok{()}\SpecialCharTok{\}}\SpecialStringTok{/}\SpecialCharTok{\{}\BuiltInTok{len}\NormalTok{(sensor\_cols)}\SpecialCharTok{\}}\SpecialStringTok{ healthy"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+FEATURE VARIANCE ANALYSIS
+========================================
+F1 (DR      ): 9.55e+08
+F2 (DR_norm ): 5.89e+03
+F3 (EMAi_001): 6.90e+01
+F4 (EMAi_01 ): 1.88e+02
+F5 (EMAi_1  ): 1.24e+03
+F6 (EMAd_001): 3.35e+01
+F7 (EMAd_01 ): 1.04e+02
+F8 (EMAd_1  ): 4.19e+03
+
+SENSOR HEALTH: 128/128 healthy
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# Visualization}
+\NormalTok{fig, (ax1, ax2) }\OperatorTok{=}\NormalTok{ plt.subplots(}\DecValTok{1}\NormalTok{, }\DecValTok{2}\NormalTok{, figsize}\OperatorTok{=}\NormalTok{(}\DecValTok{10}\NormalTok{, }\DecValTok{3}\NormalTok{))}
+
+\CommentTok{\# Variance by type}
+\NormalTok{means }\OperatorTok{=}\NormalTok{ [df[feature\_types[ft]].var().mean() }\ControlFlowTok{for}\NormalTok{ ft }\KeywordTok{in}\NormalTok{ feature\_types]}
+\NormalTok{ax1.bar(}\BuiltInTok{range}\NormalTok{(}\DecValTok{8}\NormalTok{), means, color}\OperatorTok{=}\NormalTok{[}\StringTok{\textquotesingle{}red\textquotesingle{}}\NormalTok{,}\StringTok{\textquotesingle{}orange\textquotesingle{}}\NormalTok{] }\OperatorTok{+}\NormalTok{ [}\StringTok{\textquotesingle{}green\textquotesingle{}}\NormalTok{]}\OperatorTok{*}\DecValTok{3} \OperatorTok{+}\NormalTok{ [}\StringTok{\textquotesingle{}blue\textquotesingle{}}\NormalTok{]}\OperatorTok{*}\DecValTok{3}\NormalTok{, alpha}\OperatorTok{=}\FloatTok{0.7}\NormalTok{)}
+\NormalTok{ax1.set\_yscale(}\StringTok{\textquotesingle{}log\textquotesingle{}}\NormalTok{)}
+\NormalTok{ax1.set\_xlabel(}\StringTok{\textquotesingle{}Feature Type\textquotesingle{}}\NormalTok{)}
+\NormalTok{ax1.set\_ylabel(}\StringTok{\textquotesingle{}Mean Variance (log)\textquotesingle{}}\NormalTok{)}
+\NormalTok{ax1.set\_title(}\StringTok{\textquotesingle{}Variance by Feature Type\textquotesingle{}}\NormalTok{)}
+\NormalTok{ax1.set\_xticklabels([}\SpecialStringTok{f\textquotesingle{}F}\SpecialCharTok{\{}\NormalTok{i}\OperatorTok{+}\DecValTok{1}\SpecialCharTok{\}}\SpecialStringTok{\textquotesingle{}} \ControlFlowTok{for}\NormalTok{ i }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{8}\NormalTok{)])}
+
+\CommentTok{\# Heatmap}
+\NormalTok{variance\_matrix }\OperatorTok{=}\NormalTok{ np.zeros((}\DecValTok{16}\NormalTok{, }\DecValTok{8}\NormalTok{))}
+\ControlFlowTok{for}\NormalTok{ s }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{16}\NormalTok{):}
+    \ControlFlowTok{for}\NormalTok{ f }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{8}\NormalTok{):}
+\NormalTok{        col }\OperatorTok{=} \SpecialStringTok{f\textquotesingle{}S}\SpecialCharTok{\{}\NormalTok{s}\OperatorTok{+}\DecValTok{1}\SpecialCharTok{:02d\}}\SpecialStringTok{\_F}\SpecialCharTok{\{}\NormalTok{f}\OperatorTok{+}\DecValTok{1}\SpecialCharTok{\}}\SpecialStringTok{\_\textquotesingle{}} \OperatorTok{+} \BuiltInTok{list}\NormalTok{(feature\_types.keys())[f].split(}\StringTok{\textquotesingle{}\_\textquotesingle{}}\NormalTok{)[}\DecValTok{0}\NormalTok{]}
+\NormalTok{        matching }\OperatorTok{=}\NormalTok{ [c }\ControlFlowTok{for}\NormalTok{ c }\KeywordTok{in}\NormalTok{ sensor\_cols }\ControlFlowTok{if}\NormalTok{ c.startswith(}\SpecialStringTok{f\textquotesingle{}S}\SpecialCharTok{\{}\NormalTok{s}\OperatorTok{+}\DecValTok{1}\SpecialCharTok{:02d\}}\SpecialStringTok{\_F}\SpecialCharTok{\{}\NormalTok{f}\OperatorTok{+}\DecValTok{1}\SpecialCharTok{\}}\SpecialStringTok{\_\textquotesingle{}}\NormalTok{)]}
+        \ControlFlowTok{if}\NormalTok{ matching:}
+\NormalTok{            variance\_matrix[s, f] }\OperatorTok{=}\NormalTok{ df[matching[}\DecValTok{0}\NormalTok{]].var()}
+
+\NormalTok{im }\OperatorTok{=}\NormalTok{ ax2.imshow(variance\_matrix, aspect}\OperatorTok{=}\StringTok{\textquotesingle{}auto\textquotesingle{}}\NormalTok{, cmap}\OperatorTok{=}\StringTok{\textquotesingle{}YlOrRd\textquotesingle{}}\NormalTok{, norm}\OperatorTok{=}\NormalTok{plt.matplotlib.colors.LogNorm())}
+\NormalTok{ax2.set\_xlabel(}\StringTok{\textquotesingle{}Feature\textquotesingle{}}\NormalTok{)}
+\NormalTok{ax2.set\_ylabel(}\StringTok{\textquotesingle{}Sensor\textquotesingle{}}\NormalTok{)}
+\NormalTok{ax2.set\_title(}\StringTok{\textquotesingle{}Variance Heatmap\textquotesingle{}}\NormalTok{)}
+\NormalTok{plt.colorbar(im, ax}\OperatorTok{=}\NormalTok{ax2, fraction}\OperatorTok{=}\FloatTok{0.046}\NormalTok{, pad}\OperatorTok{=}\FloatTok{0.04}\NormalTok{)}
+\NormalTok{plt.tight\_layout()}
+\NormalTok{plt.show()}
+\end{Highlighting}
+\end{Shaded}
+
+\pandocbounded{\includegraphics[keepaspectratio]{main_files/figure-pdf/cell-5-output-1.png}}
+
+\subsection{Data Quality Assessment}\label{data-quality-assessment}
+
+Data quality assessment revealed no missing values, duplicates, or
+measurement errors requiring correction. The 64 sensors with negative
+values represent genuine drift phenomena (sensitivity decreases)
+documented by Vergara et al.~(2012), not errors.
 
 \section{Exploratory Data Analysis}\label{exploratory-data-analysis}
 
